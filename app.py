@@ -3,6 +3,7 @@ import google.generativeai as genai
 import sqlite3
 from flask_cors import CORS
 import os
+import json
 
 app = Flask(__name__)
 CORS(app)
@@ -19,27 +20,57 @@ def get_db_connection():
 def init_db():
     conn = get_db_connection()
     conn.execute('''CREATE TABLE IF NOT EXISTS custom_options
-                    (label TEXT PRIMARY KEY, prompt TEXT)''')
+                    (id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                     url TEXT UNIQUE, 
+                     options TEXT)''')
     conn.commit()
     conn.close()
 
-def load_custom_options():
+def load_custom_options(url):
     conn = get_db_connection()
-    options = {row['label']: row['prompt'] for row in conn.execute('SELECT * FROM custom_options')}
+    cursor = conn.cursor()
+    cursor.execute('SELECT options FROM custom_options WHERE url = ?', (url,))
+    result = cursor.fetchone()
     conn.close()
-    return options
+    if result:
+        options =json.loads(result[0])
+        return {opt['label']: opt['prompt'] for opt in options}
+    return {}
 
-def save_custom_option(label, prompt):
+def save_custom_option(label, prompt, url):
     conn = get_db_connection()
-    conn.execute('INSERT OR REPLACE INTO custom_options (label, prompt) VALUES (?, ?)',
-                 (label, prompt))
-    conn.commit()
-    conn.close()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('SELECT options FROM custom_options WHERE url = ?', (url,))
+        row = cursor.fetchone()
+        if row:
+            options = json.loads(row[0])
+            options.append({'label': label, 'prompt': prompt})
+            cursor.execute('UPDATE custom_options SET options = ? WHERE url = ?', 
+                           (json.dumps(options), url))
+        else:
+            options = [{'label': label, 'prompt': prompt}]
+            cursor.execute('INSERT INTO custom_options (url, options) VALUES (?, ?)', 
+                           (url, json.dumps(options)))
+        conn.commit()
+    except Exception as e:
+        print(f"Error in save_custom_option: {str(e)}")  # Add this line for debugging
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
-def remove_custom_option(label):
+def remove_custom_option(label, url):
     conn = get_db_connection()
-    conn.execute('DELETE FROM custom_options WHERE label = ?', (label,))
-    conn.commit()
+    cursor = conn.cursor()
+    cursor.execute('SELECT options FROM custom_options WHERE url = ?', (url,))
+    row = cursor.fetchone()
+    if row:
+        options = json.loads(row[0])
+        options = [opt for opt in options if opt['label'] != label]
+        cursor.execute('UPDATE custom_options SET options = ? WHERE url = ?', 
+                       (json.dumps(options), url))
+        conn.commit()
     conn.close()
 
 def generate_comment(post_content, style, custom_prompt=None):
@@ -74,7 +105,8 @@ def generate_comment_endpoint():
         data = request.json
         post_content = data.get('postContent', '')
         style = data.get('style', '')
-        custom_options = load_custom_options()
+        url = data.get('url', '')
+        custom_options = load_custom_options(url)
 
         if post_content and style:
             if style in custom_options:
@@ -94,18 +126,29 @@ def add_custom_option():
         data = request.json
         label = data.get('label', '')
         prompt = data.get('prompt', '')
-        if label and prompt:
-            save_custom_option(label, prompt)
+        url = data.get('url', '')
+        if label and prompt and url:
+            save_custom_option(label, prompt, url)
             return jsonify({'message': 'Custom option added successfully'})
         else:
             return jsonify({'error': 'Invalid input'}), 400
     except Exception as e:
+        # print(f"Error in add_custom_option: {str(e)}")  # Add this line for debugging
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 
 @app.route('/get_custom_options', methods=['GET'])
 def get_custom_options():
     try:
-        options = load_custom_options()
+        url = request.args.get('url', '')
+        if not url:
+            return jsonify({'error': 'URL parameter is required'}), 400
+        
+        options = load_custom_options(url)
+        
+        # If no options found for this URL, return an empty object
+        if not options:
+            return jsonify({})
+        
         return jsonify(options)
     except Exception as e:
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
@@ -114,15 +157,44 @@ def get_custom_options():
 def remove_custom_option_endpoint():
     try:
         data = request.json
+        url = data.get('url', '')
         label = data.get('label', '')
-        if label:
-            remove_custom_option(label)
+        if url and label:
+            remove_custom_option(label, url)
             return jsonify({'message': 'Custom option removed successfully'})
         else:
             return jsonify({'error': 'Invalid input'}), 400
+    except Exception as e:
+        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
+    
+@app.route('/save_url', methods=['POST'])
+def save_url():
+    try:
+        data = request.json
+        url = data.get('url', '').strip()
+        if url:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute('SELECT url FROM custom_options WHERE url = ?', (url,))
+            existing_url = cursor.fetchone()
+            
+            if existing_url:
+                return jsonify({'message': 'URL already exists', 'url': url}), 200
+            
+            cursor.execute('INSERT INTO custom_options (url, options) VALUES (?, ?)', 
+                           (url, json.dumps([])))
+            conn.commit()
+            conn.close()
+            print(f"URL '{url}' stored successfully with empty options array.")
+            return jsonify({'message': 'URL saved successfully', 'url': url})
+        else:
+            return jsonify({'error': 'URL not provided'}), 400
+    except sqlite3.IntegrityError:
+        return jsonify({'message': 'URL already exists', 'url': url}), 200
     except Exception as e:
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 
 if __name__ == '__main__':
     init_db()
     app.run(debug=True)
+
