@@ -84,16 +84,20 @@ def generate_comment(post_content, style, custom_prompt=None):
         prompt = f"Write a {style} comment about this LinkedIn post: {post_content}"
 
     try:
-        response = genai.generate_text(prompt=prompt, temperature=0.7)
-        if hasattr(response, 'candidates'):
-            candidates = response.candidates
-            if candidates:
-                first_candidate = candidates[0]
-                output_text = first_candidate.get('output', "Error: No output found in the API response.")
-            else:
-                output_text = "Error: No output from the API."
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        response = model.generate_content(prompt)
+        # Check if the response has a 'text' attribute
+        if hasattr(response, 'text'):
+            output_text = response.text
+        # If not, check if it's a list or has a 'parts' attribute
+        elif isinstance(response, list) or hasattr(response, 'parts'):
+            parts = response if isinstance(response, list) else response.parts
+            output_text = ''.join(part.text for part in parts if hasattr(part, 'text'))
         else:
-            output_text = "Error: No candidates found in the API response."
+            output_text = "Error: Unexpected response format from the API."
+        
+        if not output_text:
+            output_text = "Error: No output text generated from the API."
     except Exception as e:
         output_text = f"Error generating comment: {str(e)}"
 
