@@ -78,8 +78,8 @@ def generate_comment(post_content, style, custom_prompt=None):
         prompt = f"{custom_prompt}: {post_content}"
     elif style == "neutral":
         prompt = f"Be a calm and composed LinkedIn business coach. Respond to this LinkedIn post with a comment that conveys a neutral perspective. Make sure not to repeat what has already been said in the post. Use new words, phrases, ideas and insights. Do not include any hashtags and emoji. Keep it less than 15 words: {post_content}"
-    elif style == "new insight":
-        prompt = f"The above is a post on LinkedIn. I want to be an authoritative and insightful LinkedIn user who is friendly in response to the post. Write and add brand new insights in response to the post and make sure not to repeat what has already been said in the post. Use new words, phrases, ideas and insights. Keep it short and professional: {post_content}"
+    elif style == "Lighthearted":
+        prompt = f"Above is the content of the post on LinkedIn. Write a comment to respond to the post based on the following instructions: Be a cheerful and light-hearted LinkedIn user. Reply to this LinkedIn post with a comment that contains a touch of humor or amusement, while still being respectful and relevant: {post_content}"
     else:
         prompt = f"Write a {style} comment about this LinkedIn post: {post_content}"
 
